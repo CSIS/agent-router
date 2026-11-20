@@ -1453,6 +1453,7 @@ const (
 	ChatCompletionChoicesFinishReasonUnexpectedToolCall    ChatCompletionChoicesFinishReason = "unexpected_tool_call"
 	ChatCompletionChoicesFinishReasonLanguage              ChatCompletionChoicesFinishReason = "language"
 	ChatCompletionChoicesFinishReasonNoImage               ChatCompletionChoicesFinishReason = "no_image"
+	ChatCompletionChoicesFinishReasonMalformedResponse     ChatCompletionChoicesFinishReason = "malformed_response"
 	ChatCompletionChoicesFinishReasonError                 ChatCompletionChoicesFinishReason = "error"
 )
 

@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
@@ -37,6 +36,11 @@ const (
 // back a thought_signature on function-call parts in multi-turn requests, see
 // https://ai.google.dev/gemini-api/docs/thought-signatures.
 var dummyThoughtSignature = []byte("skip_thought_signature_validator")
+
+// geminiFinishReasonMalformedResponse is the finish reason Vertex returns when the model's
+// response could not be parsed, for example on a new tool turn after function calls were
+// replayed without their real thought signatures. genai has no constant for it.
+const geminiFinishReasonMalformedResponse genai.FinishReason = "MALFORMED_RESPONSE"
 
 // geminiResponseMode represents the type of response mode for Gemini requests
 type geminiResponseMode string
@@ -310,16 +314,20 @@ func assistantMsgToGeminiParts(msg *openai.ChatCompletionAssistantMessageParam) 
 		funcCallPart := genai.NewPartFromFunctionCall(toolCall.Function.Name, parsedArgs)
 
 		// According to https://ai.google.dev/gemini-api/docs/thought-signatures, if the model generates parallel function calls in a response, the thought_signature is attached only to the first functionCall part. Subsequent  functionCall parts in the same response will not contain a signature.
-		if i == 0 {
-			if thoughtSignature != nil {
-				funcCallPart.ThoughtSignature = thoughtSignature
-			} else {
-				// No signature was echoed back by the client at all (e.g. an OpenAI-schema client
-				// that doesn't round-trip thinking_blocks). Gemini 3.x rejects function calls in
-				// multi-turn requests that are missing a thought_signature, so fall back to
-				// Google's documented compatibility escape.
-				funcCallPart.ThoughtSignature = dummyThoughtSignature
-			}
+		// A signature echoed in content or thinking_blocks belongs to the first call. Otherwise each
+		// call's own ID may carry the signature the response gave it (see newGeminiToolCallID).
+		_, idSignature, hasIDSignature := thoughtSignatureFromToolCallID(*toolCall.ID)
+		switch {
+		case i == 0 && thoughtSignature != nil:
+			funcCallPart.ThoughtSignature = thoughtSignature
+		case hasIDSignature:
+			funcCallPart.ThoughtSignature = idSignature
+		case i == 0:
+			// No signature was echoed back by the client at all (e.g. an OpenAI-schema client
+			// that doesn't round-trip thinking_blocks and rewrote or truncated the tool-call ID).
+			// Gemini 3.x rejects function calls in multi-turn requests that are missing a
+			// thought_signature, so fall back to Google's documented compatibility escape.
+			funcCallPart.ThoughtSignature = dummyThoughtSignature
 		}
 
 		parts = append(parts, funcCallPart)
@@ -883,6 +891,8 @@ func geminiFinishReasonToOpenAI[T toolCallSlice](reason genai.FinishReason, tool
 		return openai.ChatCompletionChoicesFinishReasonLanguage
 	case genai.FinishReasonNoImage:
 		return openai.ChatCompletionChoicesFinishReasonNoImage
+	case geminiFinishReasonMalformedResponse:
+		return openai.ChatCompletionChoicesFinishReasonMalformedResponse
 	case "":
 		// For intermediate chunks in a streaming response, the finish reason is an empty string.
 		// This is normal behavior and should not be treated as an error.
@@ -946,8 +956,8 @@ func extractToolCallsFromGeminiParts(toolCalls []openai.ChatCompletionMessageToo
 			return nil, "", fmt.Errorf("failed to marshal function arguments: %w", err)
 		}
 
-		// Generate a random ID for the tool call.
-		toolCallID := uuid.New().String()
+		// The ID carries the part's thought signature for clients that drop thinking_blocks.
+		toolCallID := newGeminiToolCallID(part.ThoughtSignature)
 
 		toolCall := openai.ChatCompletionMessageToolCallParam{
 			ID:   &toolCallID,

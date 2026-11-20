@@ -170,6 +170,28 @@ curl -H "Content-Type: application/json" \
   $GATEWAY_URL/anthropic/v1/messages
 ```
 
+## Gemini tool calls and thought signatures
+
+Gemini returns a thought signature with each function call and needs it back when the call is
+replayed in a later request. On `/v1/chat/completions`, the gateway returns the signature in
+`thinking_blocks` and also appends it to the tool-call ID:
+
+```
+<uuid>_ts_<base64url(crc32(signature) || signature)>
+```
+
+Clients that drop `thinking_blocks` but send tool-call IDs back unchanged therefore keep the
+signature. These IDs are usually 400 to 700 characters long and use only `A-Z`, `a-z`, `0-9`,
+`_` and `-`.
+
+- A request to Gemini takes the signature from `thinking_blocks` first, then from the tool-call ID.
+  If the ID was shortened or changed, the gateway sends Google's
+  `skip_thought_signature_validator` value instead.
+- Before a request goes to any other backend, the gateway shortens these IDs to the UUID, because
+  other providers limit the ID length.
+- When Gemini cannot produce a valid response (`MALFORMED_RESPONSE`), the gateway returns
+  `finish_reason: "malformed_response"`.
+
 ## Troubleshooting
 
 If you encounter issues:
