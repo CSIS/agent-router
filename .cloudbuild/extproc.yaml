@@ -1,0 +1,49 @@
+# Copyright Envoy AI Gateway Authors
+# SPDX-License-Identifier: Apache-2.0
+# The full text of the Apache license is available in the LICENSE file at
+# the root of the repo.
+
+# Tests, builds and publishes the extproc image of this fork. The trigger that runs it, its
+# worker pool and its logs bucket are defined outside this repository; the trigger fires on
+# pushes to csis/v1.3 only, never on pull requests, because this repository is public.
+#
+# Cloud Build attests images published through `images:` with the built-by-cloud-build
+# attestor, which Binary Authorization requires. In a private worker pool it does so only with
+# requestedVerifyOption: VERIFIED. Deploy the image by digest: tags are not attested.
+logsBucket: "${_LOGSBUCKET}"
+options:
+  pool:
+    name: "${_WORKERPOOL}"
+  automapSubstitutions: true
+  dynamicSubstitutions: true
+  requestedVerifyOption: VERIFIED
+steps:
+  - name: "golang:1.27.3"
+    id: test
+    script: |
+      set -eux
+      go test ./internal/...
+  - name: "golang:1.27.3"
+    id: build-binary
+    waitFor: [test]
+    script: |
+      set -eux
+      # The checkout may have no tags, so the Makefile's git describe cannot set the version.
+      make build.extproc GOOS_LIST=linux GOARCH_LIST=amd64 VERSION_STRING="${_VERSION}-${SHORT_SHA}"
+  - name: "gcr.io/cloud-builders/docker"
+    id: build-image
+    waitFor: [build-binary]
+    script: |
+      set -eux
+      docker build . --platform linux/amd64 \
+        --build-arg COMMAND_NAME=extproc --build-arg VARIANT=static \
+        -t "${_IMAGE}:${SHORT_SHA}" -t "${_IMAGE}:${_TAG}"
+    env:
+      - DOCKER_BUILDKIT=1
+images:
+  - "${_IMAGE}:${SHORT_SHA}"
+  - "${_IMAGE}:${_TAG}"
+substitutions:
+  _IMAGE: "europe-docker.pkg.dev/${PROJECT_ID}/uvnixy-repo/agent-router/extproc"
+  _VERSION: "v1.3.0-csis"
+  _TAG: "csis-v1.3"
