@@ -90,7 +90,7 @@ func StripGeminiToolCallIDSignatures(body []byte) ([]byte, bool) {
 		}
 		i += from
 		from = i + len(sep)
-		start := i - toolCallIDUUIDLen // First byte of the base ID.
+		start := i - toolCallIDUUIDLen
 		if start < 1 || start < copied || body[start-1] != '"' || escapedQuote(body, start-1) {
 			continue
 		}

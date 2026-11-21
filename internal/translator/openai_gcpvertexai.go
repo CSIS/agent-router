@@ -362,7 +362,6 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) extractToolCallsFromGemi
 			return nil, "", fmt.Errorf("failed to marshal function arguments: %w", err)
 		}
 
-		// The ID carries the part's thought signature for clients that drop thinking_blocks.
 		toolCallID := newGeminiToolCallID(part.ThoughtSignature)
 
 		toolCall := openai.ChatCompletionChunkChoiceDeltaToolCall{
