@@ -25,8 +25,6 @@ import (
 
 const geminiIDTestUUID = "6f1c2a9e-4b7d-4e2a-9c3f-1a2b3c4d5e6f"
 
-// signedGeminiToolCallID builds a tool-call ID in the documented format of the GCPVertexAI
-// translator: <uuid>_ts_<base64url(crc32(signature) big-endian || signature)>.
 func signedGeminiToolCallID(base string, signature []byte) string {
 	payload := binary.BigEndian.AppendUint32(nil, crc32.ChecksumIEEE(signature))
 	return base + "_ts_" + base64.RawURLEncoding.EncodeToString(append(payload, signature...))
@@ -61,7 +59,7 @@ func Test_chatCompletionProcessorUpstreamFilter_geminiToolCallIDSignatures(t *te
 	}
 	send := func(t *testing.T, rp *chatCompletionProcessorRouterFilter, schema filterapi.VersionedAPISchema) []byte {
 		t.Helper()
-		rp.upstreamFilterCount = 0 // Each send is the first attempt unless the caller retries.
+		rp.upstreamFilterCount = 0
 		p := &chatCompletionProcessorUpstreamFilter{
 			requestHeaders: map[string]string{":path": "/v1/chat/completions", internalapi.ModelNameHeaderKeyDefault: "some-model"},
 			metrics:        &mockMetrics{},
@@ -86,7 +84,6 @@ func Test_chatCompletionProcessorUpstreamFilter_geminiToolCallIDSignatures(t *te
 			ids:    openAIChatToolCallIDs,
 		},
 		{
-			// The Azure translator returns no body even when the body must be sent.
 			name:   "AzureOpenAI pass-through",
 			schema: filterapi.VersionedAPISchema{Name: filterapi.APISchemaAzureOpenAI, Version: "2025-01-01"},
 			ids:    openAIChatToolCallIDs,
@@ -132,7 +129,6 @@ func Test_chatCompletionProcessorUpstreamFilter_geminiToolCallIDSignatures(t *te
 		_, body, _, _, err := endpointspec.ChatCompletionsEndpointSpec{}.ParseBody(raw, false)
 		require.NoError(t, err)
 		rp.originalRequestBodyRaw, rp.originalRequestBody = raw, body
-		// The OpenAI pass-through has nothing to change, so it emits no body: Envoy sends the client's.
 		require.Nil(t, send(t, rp, filterapi.VersionedAPISchema{Name: filterapi.APISchemaOpenAI}))
 	})
 }

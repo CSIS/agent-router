@@ -159,7 +159,6 @@ func FuzzThoughtSignatureFromToolCallID(f *testing.F) {
 		if !ok {
 			return
 		}
-		// Only an ID in the documented format, with an in-range signature, decodes.
 		require.Equal(t, signedToolCallID(base, sig), id)
 		require.NotEmpty(t, sig)
 		require.LessOrEqual(t, len(sig), maxToolCallIDSignatureBytes)

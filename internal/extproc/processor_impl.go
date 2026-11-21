@@ -94,8 +94,6 @@ type (
 		originalRequestBodyRaw []byte
 		originalModel          internalapi.OriginalModel
 		forceBodyMutation      bool
-		// requestWithoutSignatures caches the request for non-Gemini backends, see
-		// [routerProcessor.requestWithoutGeminiToolCallIDSignatures].
 		requestWithoutSignatures *strippedRequest[ReqT]
 		// tracer is the tracer used for requests.
 		tracer tracingapi.RequestTracer[ReqT, RespT, RespChunkT]
@@ -112,8 +110,6 @@ type (
 		debugLogEnabled   bool
 		enableRedaction   bool
 	}
-	// strippedRequest is a request body with the Gemini thought signatures removed from its
-	// tool-call IDs, and the request parsed from it.
 	strippedRequest[ReqT any] struct {
 		raw     []byte
 		body    *ReqT
@@ -424,8 +420,6 @@ func (u *upstreamProcessor[ReqT, RespT, RespChunkT, EndpointSpecT]) ProcessReque
 	}
 	newHeaders, newBody, err := u.translator.RequestBody(reqRaw, req, forceBodyMutation)
 	if stripped && newBody == nil {
-		// A pass-through translator returned no body because it did not change the one it was
-		// given, but that body is the stripped one, not the one Envoy holds.
 		newBody = reqRaw
 	}
 	if err != nil {

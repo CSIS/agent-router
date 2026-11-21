@@ -25,8 +25,6 @@ import (
 // signature, which Vertex rejects with 400 "Invalid thought signature".
 const (
 	toolCallIDSignatureSeparator = "_ts_"
-	// maxToolCallIDSignatureBytes caps the signature carried in an ID. Larger signatures are
-	// not encoded, and payloads that would decode to more are rejected.
 	maxToolCallIDSignatureBytes = 8 << 10
 	toolCallIDChecksumBytes     = 4
 	toolCallIDUUIDLen           = 36
@@ -35,8 +33,6 @@ const (
 
 var maxToolCallIDPayloadLen = base64.RawURLEncoding.EncodedLen(toolCallIDChecksumBytes + maxToolCallIDSignatureBytes)
 
-// newGeminiToolCallID returns a fresh tool-call ID that carries signature, or a plain UUID when
-// signature is empty or larger than maxToolCallIDSignatureBytes.
 func newGeminiToolCallID(signature []byte) string {
 	id := uuid.New().String()
 	if len(signature) == 0 || len(signature) > maxToolCallIDSignatureBytes {
@@ -48,10 +44,6 @@ func newGeminiToolCallID(signature []byte) string {
 	return id + toolCallIDSignatureSeparator + base64.RawURLEncoding.EncodeToString(payload)
 }
 
-// thoughtSignatureFromToolCallID returns the base UUID and the signature carried by id. ok is
-// false when id carries no intact signature: it does not start with a UUID and the separator, the
-// payload is too long or not base64url, or the checksum does not match (for example after a
-// client truncated the ID).
 func thoughtSignatureFromToolCallID(id string) (base string, signature []byte, ok bool) {
 	if len(id) <= toolCallIDPrefixLen || id[toolCallIDUUIDLen:toolCallIDPrefixLen] != toolCallIDSignatureSeparator {
 		return "", nil, false
@@ -82,7 +74,7 @@ func StripGeminiToolCallIDSignatures(body []byte) ([]byte, bool) {
 		return body, false
 	}
 	var out []byte
-	copied := 0 // body[:copied] has been written to out.
+	copied := 0
 	for from := 0; ; {
 		i := bytes.Index(body[from:], sep)
 		if i < 0 {
@@ -118,8 +110,6 @@ func StripGeminiToolCallIDSignatures(body []byte) ([]byte, bool) {
 	return append(out, body[copied:]...), true
 }
 
-// escapedQuote reports whether the quote at body[q] is preceded by an odd number of backslashes,
-// that is, whether it is part of a string's content rather than a delimiter.
 func escapedQuote(body []byte, q int) bool {
 	n := 0
 	for j := q - 1; j >= 0 && body[j] == '\\'; j-- {
