@@ -25,10 +25,10 @@ import (
 // signature, which Vertex rejects with 400 "Invalid thought signature".
 const (
 	toolCallIDSignatureSeparator = "_ts_"
-	maxToolCallIDSignatureBytes = 8 << 10
-	toolCallIDChecksumBytes     = 4
-	toolCallIDUUIDLen           = 36
-	toolCallIDPrefixLen         = toolCallIDUUIDLen + len(toolCallIDSignatureSeparator)
+	maxToolCallIDSignatureBytes  = 8 << 10
+	toolCallIDChecksumBytes      = 4
+	toolCallIDUUIDLen            = 36
+	toolCallIDPrefixLen          = toolCallIDUUIDLen + len(toolCallIDSignatureSeparator)
 )
 
 var maxToolCallIDPayloadLen = base64.RawURLEncoding.EncodedLen(toolCallIDChecksumBytes + maxToolCallIDSignatureBytes)

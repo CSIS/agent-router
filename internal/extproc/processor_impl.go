@@ -90,10 +90,10 @@ type (
 		// originalRequestBody is the original request body that is passed to the upstream filter.
 		// This is used to perform the transformation of the request body on the original input
 		// when the request is retried.
-		originalRequestBody    *ReqT
-		originalRequestBodyRaw []byte
-		originalModel          internalapi.OriginalModel
-		forceBodyMutation      bool
+		originalRequestBody      *ReqT
+		originalRequestBodyRaw   []byte
+		originalModel            internalapi.OriginalModel
+		forceBodyMutation        bool
 		requestWithoutSignatures *strippedRequest[ReqT]
 		// tracer is the tracer used for requests.
 		tracer tracingapi.RequestTracer[ReqT, RespT, RespChunkT]
