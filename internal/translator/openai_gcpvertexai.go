@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 	"k8s.io/utils/ptr"
 
@@ -363,8 +362,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) extractToolCallsFromGemi
 			return nil, "", fmt.Errorf("failed to marshal function arguments: %w", err)
 		}
 
-		// Generate a random ID for the tool call.
-		toolCallID := uuid.New().String()
+		toolCallID := newGeminiToolCallID(part.ThoughtSignature)
 
 		toolCall := openai.ChatCompletionChunkChoiceDeltaToolCall{
 			ID:   &toolCallID,

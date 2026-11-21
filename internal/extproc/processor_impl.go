@@ -90,10 +90,11 @@ type (
 		// originalRequestBody is the original request body that is passed to the upstream filter.
 		// This is used to perform the transformation of the request body on the original input
 		// when the request is retried.
-		originalRequestBody    *ReqT
-		originalRequestBodyRaw []byte
-		originalModel          internalapi.OriginalModel
-		forceBodyMutation      bool
+		originalRequestBody      *ReqT
+		originalRequestBodyRaw   []byte
+		originalModel            internalapi.OriginalModel
+		forceBodyMutation        bool
+		requestWithoutSignatures *strippedRequest[ReqT]
 		// tracer is the tracer used for requests.
 		tracer tracingapi.RequestTracer[ReqT, RespT, RespChunkT]
 		// span is the tracing span for this request, created in ProcessRequestBody.
@@ -108,6 +109,11 @@ type (
 		stream            bool
 		debugLogEnabled   bool
 		enableRedaction   bool
+	}
+	strippedRequest[ReqT any] struct {
+		raw     []byte
+		body    *ReqT
+		changed bool
 	}
 	// upstreamProcessor implements [Processor] for the upstream filter for the standard LLM endpoints.
 	//
@@ -130,6 +136,9 @@ type (
 		aiServiceBackendName     string
 		routeName                string
 		handler                  filterapi.BackendAuthHandler
+		// geminiBackend is true for GCPVertexAI backends, which read the thought signatures that
+		// the GCPVertexAI translator puts into tool-call IDs. Other backends get the IDs without them.
+		geminiBackend bool
 		// unsupportedBackendErr is set by SetBackend and answered as a 422 in ProcessRequestHeaders.
 		unsupportedBackendErr error
 		// cost is the cost of the request that is accumulated during the processing of the response.
@@ -230,6 +239,32 @@ func createUserFacingErrorResponse(statusCode int, errorType string, message str
 			},
 		},
 	}
+}
+
+// requestWithoutGeminiToolCallIDSignatures returns the request to send to a non-Gemini backend.
+// When the request carries tool-call IDs with Gemini thought signatures (a client replaying a
+// Gemini session to another model, or a failover), those IDs are reduced to their base UUID and
+// the body is parsed again, so pass-through and typed translators see the same request. Otherwise
+// it is the original request. The result is computed once and reused across retries.
+func (r *routerProcessor[ReqT, RespT, RespChunkT, EndpointSpecT]) requestWithoutGeminiToolCallIDSignatures() (*strippedRequest[ReqT], error) {
+	if r.requestWithoutSignatures != nil {
+		return r.requestWithoutSignatures, nil
+	}
+	result := &strippedRequest[ReqT]{raw: r.originalRequestBodyRaw, body: r.originalRequestBody}
+	isMultipart := strings.HasPrefix(strings.ToLower(r.requestHeaders["content-type"]), "multipart/form-data")
+	if raw, changed := translator.StripGeminiToolCallIDSignatures(r.originalRequestBodyRaw); changed && !isMultipart {
+		costConfigured := len(r.config.RequestCosts) > 0 || len(r.config.GlobalRequestCosts) > 0
+		_, body, _, mutated, err := r.eh.ParseBody(raw, costConfigured)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse request body after removing Gemini thought signatures from tool-call IDs: %w", err)
+		}
+		if mutated != nil {
+			raw = mutated
+		}
+		result = &strippedRequest[ReqT]{raw: raw, body: body, changed: true}
+	}
+	r.requestWithoutSignatures = result
+	return result, nil
 }
 
 // ProcessRequestBody implements [Processor.ProcessRequestBody].
@@ -372,7 +407,21 @@ func (u *upstreamProcessor[ReqT, RespT, RespChunkT, EndpointSpecT]) ProcessReque
 	// * The request is a streaming request, and the IncludeUsage option is set to false since we need to ensure that
 	//	the token usage is calculated correctly without being bypassed.
 	forceBodyMutation := u.onRetry() || u.parent.forceBodyMutation
-	newHeaders, newBody, err := u.translator.RequestBody(u.parent.originalRequestBodyRaw, u.parent.originalRequestBody, forceBodyMutation)
+	reqRaw, req := u.parent.originalRequestBodyRaw, u.parent.originalRequestBody
+	var stripped bool
+	if !u.geminiBackend {
+		withoutSignatures, stripErr := u.parent.requestWithoutGeminiToolCallIDSignatures()
+		if stripErr != nil {
+			return nil, stripErr
+		}
+		reqRaw, req, stripped = withoutSignatures.raw, withoutSignatures.body, withoutSignatures.changed
+		// The body differs from the one Envoy holds, so it must be sent.
+		forceBodyMutation = forceBodyMutation || stripped
+	}
+	newHeaders, newBody, err := u.translator.RequestBody(reqRaw, req, forceBodyMutation)
+	if stripped && newBody == nil {
+		newBody = reqRaw
+	}
 	if err != nil {
 		if userFacingErr := internalapi.GetUserFacingError(err); userFacingErr != nil {
 			// return to user as 422 -  e.g., "invalid request body: tool_choice type not supported"
@@ -752,6 +801,7 @@ func (u *upstreamProcessor[ReqT, RespT, RespChunkT, EndpointSpecT]) SetBackend(c
 	}
 	u.modelNameOverride = backend.Backend.ModelNameOverride
 	u.backendName = backend.Backend.Name
+	u.geminiBackend = backend.Backend.Schema.Name == filterapi.APISchemaGCPVertexAI
 	u.aiServiceBackendName = resolveAIServiceBackendName(
 		backend.Backend.AIServiceBackendName, u.backendName,
 	)
